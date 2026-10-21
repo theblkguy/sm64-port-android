@@ -256,19 +256,19 @@ void render_generic_char(u8 c) {
 }
 
 #ifdef VERSION_EU
-u8 *alloc_ia4_tex_from_i1(u8 *in, s16 width, s16 height) {
-    u32 size = (u32) width * (u32) height;
-    u8 *out;
+// The PC renderer caches textures by address. Unpacking each glyph into a
+// fresh display-list allocation every frame hands it reused addresses with
+// different contents, which draws the wrong letters. Unpack each character
+// once into its own static buffer instead (from sm64ex aaf6eab).
+static struct CachedChar {
+    u8 used;
+    u8 data[8 * 8];
+} sCharCache[256];
+
+static inline void alloc_ia4_tex_from_i1(u8 *out, u8 *in, s16 width, s16 height) {
     s32 inPos;
-    s16 outPos;
+    s16 outPos = 0;
     u8 bitMask;
-
-    outPos = 0;
-    out = (u8 *) alloc_display_list(size);
-
-    if (out == NULL) {
-        return NULL;
-    }
 
     for (inPos = 0; inPos < (width * height) / 4; inPos++) {
         bitMask = 0x80;
@@ -280,8 +280,14 @@ u8 *alloc_ia4_tex_from_i1(u8 *in, s16 width, s16 height) {
             outPos++;
         }
     }
+}
 
-    return out;
+static inline u8 *convert_ia4_char(u8 c, u8 *tex, s16 w, s16 h) {
+    if (!sCharCache[c].used) {
+        sCharCache[c].used = 1;
+        alloc_ia4_tex_from_i1(sCharCache[c].data, tex, w, h);
+    }
+    return sCharCache[c].data;
 }
 
 void render_generic_char_at_pos(s16 xPos, s16 yPos, u8 c) {
@@ -291,7 +297,7 @@ void render_generic_char_at_pos(s16 xPos, s16 yPos, u8 c) {
 
     fontLUT = segmented_to_virtual(main_font_lut);
     packedTexture = segmented_to_virtual(fontLUT[c]);
-    unpackedTexture = alloc_ia4_tex_from_i1(packedTexture, 8, 8);
+    unpackedTexture = convert_ia4_char(c, packedTexture, 8, 8);
 
     gDPPipeSync(gDisplayListHead++);
     gDPSetTextureImage(gDisplayListHead++, G_IM_FMT_IA, G_IM_SIZ_16b, 1, VIRTUAL_TO_PHYSICAL(unpackedTexture));
@@ -1016,7 +1022,7 @@ void render_generic_dialog_char_at_pos(struct DialogEntry *dialog, s16 x, s16 y,
 
     fontLUT = segmented_to_virtual(main_font_lut);
     packedTexture = segmented_to_virtual(fontLUT[c]);
-    unpackedTexture = alloc_ia4_tex_from_i1(packedTexture, 8, 8);
+    unpackedTexture = convert_ia4_char(c, packedTexture, 8, 8);
 
     gDPSetTextureImage(gDisplayListHead++, G_IM_FMT_IA, G_IM_SIZ_16b, 1, VIRTUAL_TO_PHYSICAL(unpackedTexture));
     gSPDisplayList(gDisplayListHead++, dl_ia_text_tex_settings);
