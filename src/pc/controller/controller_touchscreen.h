@@ -13,5 +13,8 @@ void touch_up(struct TouchEvent* event);
 
 extern struct ControllerAPI controller_touchscreen;
 
+// Whether the on-screen controls are drawn and accept touches right now.
+extern bool gTouchControlsVisible;
+
 #endif
 #endif

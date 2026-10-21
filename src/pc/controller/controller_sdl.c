@@ -10,8 +10,48 @@
 #include <ultra64.h>
 
 #include "controller_api.h"
+#include "pc/configfile.h"
+#ifdef TOUCH_CONTROLS
+#include "controller_touchscreen.h"
+#endif
 
 #define DEADZONE 4960
+
+// One N64 button per configurable gamepad binding; resolved from the config
+// strings on first use so the config file has been read by then.
+struct GamepadBinding {
+    const char *name;
+    uint16_t mask;
+    SDL_GameControllerButton button;
+};
+
+static struct GamepadBinding bindings[] = {
+    { configGamepadA,      A_BUTTON,      SDL_CONTROLLER_BUTTON_INVALID },
+    { configGamepadB,      B_BUTTON,      SDL_CONTROLLER_BUTTON_INVALID },
+    { configGamepadZ,      Z_TRIG,        SDL_CONTROLLER_BUTTON_INVALID },
+    { configGamepadR,      R_TRIG,        SDL_CONTROLLER_BUTTON_INVALID },
+    { configGamepadL,      L_TRIG,        SDL_CONTROLLER_BUTTON_INVALID },
+    { configGamepadStart,  START_BUTTON,  SDL_CONTROLLER_BUTTON_INVALID },
+    { configGamepadCUp,    U_CBUTTONS,    SDL_CONTROLLER_BUTTON_INVALID },
+    { configGamepadCDown,  D_CBUTTONS,    SDL_CONTROLLER_BUTTON_INVALID },
+    { configGamepadCLeft,  L_CBUTTONS,    SDL_CONTROLLER_BUTTON_INVALID },
+    { configGamepadCRight, R_CBUTTONS,    SDL_CONTROLLER_BUTTON_INVALID },
+    { configGamepadDUp,    U_JPAD,        SDL_CONTROLLER_BUTTON_INVALID },
+    { configGamepadDDown,  D_JPAD,        SDL_CONTROLLER_BUTTON_INVALID },
+    { configGamepadDLeft,  L_JPAD,        SDL_CONTROLLER_BUTTON_INVALID },
+    { configGamepadDRight, R_JPAD,        SDL_CONTROLLER_BUTTON_INVALID },
+};
+static SDL_GameControllerButton touch_toggle_button = SDL_CONTROLLER_BUTTON_INVALID;
+static bool bindings_resolved;
+
+static void resolve_bindings(void) {
+    for (size_t i = 0; i < sizeof(bindings) / sizeof(bindings[0]); i++) {
+        // SDL returns INVALID for "none" and for anything it does not know.
+        bindings[i].button = SDL_GameControllerGetButtonFromString(bindings[i].name);
+    }
+    touch_toggle_button = SDL_GameControllerGetButtonFromString(configGamepadTouchToggle);
+    bindings_resolved = true;
+}
 
 static bool init_ok;
 static SDL_GameController *sdl_cntrl;
@@ -45,16 +85,44 @@ static void controller_sdl_read(OSContPad *pad) {
                 }
             }
         }
-        if (sdl_cntrl == NULL) {
-            return;
-        }
     }
 
-    if (SDL_GameControllerGetButton(sdl_cntrl, SDL_CONTROLLER_BUTTON_START)) pad->button |= START_BUTTON;
-    if (SDL_GameControllerGetButton(sdl_cntrl, SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) pad->button |= Z_TRIG;
-    if (SDL_GameControllerGetButton(sdl_cntrl, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) pad->button |= R_TRIG;
-    if (SDL_GameControllerGetButton(sdl_cntrl, SDL_CONTROLLER_BUTTON_A)) pad->button |= A_BUTTON;
-    if (SDL_GameControllerGetButton(sdl_cntrl, SDL_CONTROLLER_BUTTON_X)) pad->button |= B_BUTTON;
+    if (!bindings_resolved) {
+        resolve_bindings();
+    }
+
+#ifdef TOUCH_CONTROLS
+    static bool was_attached;
+    static bool toggle_was_down;
+    bool attached = sdl_cntrl != NULL;
+    if (attached != was_attached) {
+        was_attached = attached;
+        if (configTouchControls && configTouchAutoHide) {
+            gTouchControlsVisible = !attached;
+        }
+    }
+#endif
+
+    if (sdl_cntrl == NULL) {
+        return;
+    }
+
+#ifdef TOUCH_CONTROLS
+    if (touch_toggle_button != SDL_CONTROLLER_BUTTON_INVALID) {
+        bool down = SDL_GameControllerGetButton(sdl_cntrl, touch_toggle_button);
+        if (down && !toggle_was_down) {
+            gTouchControlsVisible = !gTouchControlsVisible;
+        }
+        toggle_was_down = down;
+    }
+#endif
+
+    for (size_t i = 0; i < sizeof(bindings) / sizeof(bindings[0]); i++) {
+        if (bindings[i].button != SDL_CONTROLLER_BUTTON_INVALID &&
+            SDL_GameControllerGetButton(sdl_cntrl, bindings[i].button)) {
+            pad->button |= bindings[i].mask;
+        }
+    }
 
     int16_t leftx = SDL_GameControllerGetAxis(sdl_cntrl, SDL_CONTROLLER_AXIS_LEFTX);
     int16_t lefty = SDL_GameControllerGetAxis(sdl_cntrl, SDL_CONTROLLER_AXIS_LEFTY);

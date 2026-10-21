@@ -192,12 +192,42 @@ static void gfx_sdl_init(const char *game_name, bool start_in_fullscreen) {
     }
 
 #ifdef __ANDROID__
-    set_fullscreen(true, false);
+    // The activity is already fullscreen and landscape from Java. Requesting
+    // fullscreen again here resizes the native window after the GL context
+    // exists, which stalls the PowerVR driver forever (Pixel 10 / Tensor G5).
+    // Take the surface size SDL already has instead.
+    {
+        int w = 0, h = 0;
+        SDL_GetWindowSize(wnd, &w, &h);
+        if (w > 0 && h > 0) {
+            window_width = w;
+            window_height = h;
+        }
+        fullscreen_state = true;
+    }
 #endif
     SDL_GL_CreateContext(wnd);
 
     SDL_GL_SetSwapInterval(1);
+#ifdef __ANDROID__
+    // test_vsync() measures the refresh rate by swapping twelve empty frames
+    // before the game draws anything. Android reports the refresh rate
+    // directly, so derive render_multiplier from that and skip the probe.
+    {
+        SDL_DisplayMode mode;
+        int hz = 0;
+        if (SDL_GetCurrentDisplayMode(0, &mode) == 0) {
+            hz = mode.refresh_rate;
+        }
+        vsync_enabled = 1;
+        render_multiplier = (hz + 15) / 30;
+        if (render_multiplier == 0) {
+            render_multiplier = 2;
+        }
+    }
+#else
     test_vsync();
+#endif
     if (!vsync_enabled)
         puts("Warning: VSync is not enabled or not working. Falling back to timer for synchronization");
 

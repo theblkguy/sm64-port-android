@@ -35,6 +35,24 @@
 
 #define CONFIG_FILE "sm64config.txt"
 
+#ifdef __ANDROID__
+extern const char* SDL_AndroidGetExternalStoragePath();
+#endif
+
+// On Android the working directory is not writable, so the config lives next
+// to the save file in the app's external files directory (user/).
+static const char *config_path(void) {
+#ifdef __ANDROID__
+    static char path[512];
+    if (path[0] == '\0') {
+        snprintf(path, sizeof(path), "%s/user/%s", SDL_AndroidGetExternalStoragePath(), CONFIG_FILE);
+    }
+    return path;
+#else
+    return CONFIG_FILE;
+#endif
+}
+
 OSMesg D_80339BEC;
 OSMesgQueue gSIEventMesgQueue;
 
@@ -134,7 +152,7 @@ static void on_anim_frame(double time) {
 #endif
 
 static void save_config(void) {
-    configfile_save(CONFIG_FILE);
+    configfile_save(config_path());
 }
 
 static void on_fullscreen_changed(bool is_now_fullscreen) {
@@ -204,7 +222,7 @@ void main_func(void) {
 #endif
     gEffectsMemoryPool = mem_pool_init(0x4000, MEMORY_POOL_LEFT);
 
-    configfile_load(CONFIG_FILE);
+    configfile_load(config_path());
     atexit(save_config);
 
 #ifdef TARGET_WEB

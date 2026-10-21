@@ -10,6 +10,9 @@
 #include "game/segment2.h"
 #include "gfx_dimensions.h"
 #include "pc/gfx/gfx_pc.h"
+#include "pc/configfile.h"
+
+bool gTouchControlsVisible = true;
 
 #include "controller_api.h"
 #include "controller_touchscreen.h"
@@ -56,6 +59,9 @@ static int ControlElementsLength = sizeof(ControlElementsDefault)/sizeof(struct 
 
 void touch_down(struct TouchEvent* event) {
     struct Position pos;
+    if (!gTouchControlsVisible) {
+        return;
+    }
     for(int i = 0; i < ControlElementsLength; i++) {
         if (ControlElements[i].touchID == 0) {
             pos = ControlElements[i].GetPos();
@@ -184,6 +190,10 @@ static void DrawSprite(s32 x, s32 y, int scaling) {
 void render_touch_controls(void) {
     Mtx *mtx;
 
+    if (!gTouchControlsVisible) {
+        return;
+    }
+
     mtx = alloc_display_list(sizeof(*mtx));
 
     if (mtx == NULL) {
@@ -219,9 +229,19 @@ void render_touch_controls(void) {
 }
 
 static void touchscreen_init() {
+    gTouchControlsVisible = configTouchControls;
 }
 
 static void touchscreen_read(OSContPad *pad) {
+    if (!gTouchControlsVisible) {
+        // Drop any touch that was in progress when the controls were hidden.
+        for (int i = 0; i < ControlElementsLength; i++) {
+            ControlElements[i].touchID = 0;
+            ControlElements[i].joyX = 0;
+            ControlElements[i].joyY = 0;
+        }
+        return;
+    }
     for(int i = 0; i < ControlElementsLength; i++) {
         switch (ControlElements[i].type) {
             case Joystick:

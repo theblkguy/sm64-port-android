@@ -14,6 +14,7 @@ enum ConfigOptionType {
     CONFIG_TYPE_BOOL,
     CONFIG_TYPE_UINT,
     CONFIG_TYPE_FLOAT,
+    CONFIG_TYPE_STRING,
 };
 
 struct ConfigOption {
@@ -23,6 +24,7 @@ struct ConfigOption {
         bool *boolValue;
         unsigned int *uintValue;
         float *floatValue;
+        char *stringValue;
     };
 };
 
@@ -44,6 +46,29 @@ unsigned int configKeyStickUp    = 0x11;
 unsigned int configKeyStickDown  = 0x1F;
 unsigned int configKeyStickLeft  = 0x1E;
 unsigned int configKeyStickRight = 0x20;
+// Gamepad mappings: SDL game controller button names
+// (a b x y back guide start leftstick rightstick leftshoulder rightshoulder
+//  dpup dpdown dpleft dpright) or "none". The right stick is always the
+// C buttons and the triggers always Z and R, on top of these.
+char configGamepadA[32]           = "a";
+char configGamepadB[32]           = "x";
+char configGamepadZ[32]           = "leftshoulder";
+char configGamepadR[32]           = "rightshoulder";
+char configGamepadL[32]           = "none";
+char configGamepadStart[32]       = "start";
+char configGamepadCUp[32]         = "none";
+char configGamepadCDown[32]       = "none";
+char configGamepadCLeft[32]       = "none";
+char configGamepadCRight[32]      = "none";
+char configGamepadDUp[32]         = "dpup";
+char configGamepadDDown[32]       = "dpdown";
+char configGamepadDLeft[32]       = "dpleft";
+char configGamepadDRight[32]      = "dpright";
+// Gamepad button that shows or hides the on-screen touch controls
+char configGamepadTouchToggle[32] = "back";
+// Touch controls: shown at all, and hidden automatically while a gamepad is attached
+bool configTouchControls          = true;
+bool configTouchAutoHide          = true;
 
 
 static const struct ConfigOption options[] = {
@@ -61,6 +86,23 @@ static const struct ConfigOption options[] = {
     {.name = "key_stickdown",  .type = CONFIG_TYPE_UINT, .uintValue = &configKeyStickDown},
     {.name = "key_stickleft",  .type = CONFIG_TYPE_UINT, .uintValue = &configKeyStickLeft},
     {.name = "key_stickright", .type = CONFIG_TYPE_UINT, .uintValue = &configKeyStickRight},
+    {.name = "gamepad_a",            .type = CONFIG_TYPE_STRING, .stringValue = configGamepadA},
+    {.name = "gamepad_b",            .type = CONFIG_TYPE_STRING, .stringValue = configGamepadB},
+    {.name = "gamepad_z",            .type = CONFIG_TYPE_STRING, .stringValue = configGamepadZ},
+    {.name = "gamepad_r",            .type = CONFIG_TYPE_STRING, .stringValue = configGamepadR},
+    {.name = "gamepad_l",            .type = CONFIG_TYPE_STRING, .stringValue = configGamepadL},
+    {.name = "gamepad_start",        .type = CONFIG_TYPE_STRING, .stringValue = configGamepadStart},
+    {.name = "gamepad_cup",          .type = CONFIG_TYPE_STRING, .stringValue = configGamepadCUp},
+    {.name = "gamepad_cdown",        .type = CONFIG_TYPE_STRING, .stringValue = configGamepadCDown},
+    {.name = "gamepad_cleft",        .type = CONFIG_TYPE_STRING, .stringValue = configGamepadCLeft},
+    {.name = "gamepad_cright",       .type = CONFIG_TYPE_STRING, .stringValue = configGamepadCRight},
+    {.name = "gamepad_dup",          .type = CONFIG_TYPE_STRING, .stringValue = configGamepadDUp},
+    {.name = "gamepad_ddown",        .type = CONFIG_TYPE_STRING, .stringValue = configGamepadDDown},
+    {.name = "gamepad_dleft",        .type = CONFIG_TYPE_STRING, .stringValue = configGamepadDLeft},
+    {.name = "gamepad_dright",       .type = CONFIG_TYPE_STRING, .stringValue = configGamepadDRight},
+    {.name = "gamepad_touch_toggle", .type = CONFIG_TYPE_STRING, .stringValue = configGamepadTouchToggle},
+    {.name = "touch_controls",       .type = CONFIG_TYPE_BOOL,   .boolValue = &configTouchControls},
+    {.name = "touch_controls_autohide", .type = CONFIG_TYPE_BOOL, .boolValue = &configTouchAutoHide},
 };
 
 // Reads an entire line from a file (excluding the newline character) and returns an allocated string
@@ -188,6 +230,10 @@ void configfile_load(const char *filename) {
                         case CONFIG_TYPE_FLOAT:
                             sscanf(tokens[1], "%f", option->floatValue);
                             break;
+                        case CONFIG_TYPE_STRING:
+                            strncpy(option->stringValue, tokens[1], 31);
+                            option->stringValue[31] = '\0';
+                            break;
                         default:
                             assert(0); // bad type
                     }
@@ -226,6 +272,9 @@ void configfile_save(const char *filename) {
                 break;
             case CONFIG_TYPE_FLOAT:
                 fprintf(file, "%s %f\n", option->name, *option->floatValue);
+                break;
+            case CONFIG_TYPE_STRING:
+                fprintf(file, "%s %s\n", option->name, option->stringValue);
                 break;
             default:
                 assert(0); // unknown type
