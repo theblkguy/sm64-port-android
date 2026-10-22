@@ -26,7 +26,15 @@ bool gTouchControlsVisible = true;
 #define CORRECT_TOUCH_X(x) ((x * (RIGHT_EDGE - LEFT_EDGE)) + LEFT_EDGE)
 #define CORRECT_TOUCH_Y(y) (y * SCREEN_HEIGHT_API)
 
-#define JOYSTICK_SIZE 280
+// Stick travel (diameter, in quarter-pixels of the 320x240 screen): full
+// deflection needs a longer slide than before, which is the main thing that
+// made it feel twitchy. The base is drawn 1.5x the original.
+#define JOYSTICK_SIZE 420
+#define JOYSTICK_BASE_HALF 180
+#define JOYSTICK_KNOB_HALF 60
+#define JOYSTICK_DEADZONE 16
+#define BUTTON_HALF 60
+#define BUTTON_HIT 120
 
 enum ControlElementType {
     Joystick,
@@ -43,10 +51,13 @@ struct ControlElement {
     u8 touchID; //0 = not being touched, 1-255 = Finger being used
     //Joystick
     int joyX, joyY;
+    int originX, originY; // where the finger first landed; deflection is measured from here
     //Button
     int buttonID;
     char character;
     int slideTouch;
+    int hitSize;   // touch hit box width in quarter-pixels; 0 means BUTTON_HIT
+    int drawHalf;  // half-size of the drawn disc; 0 means BUTTON_HALF
 };
 
 #include "controller_touchscreen_layouts.inc"
@@ -54,8 +65,12 @@ struct ControlElement {
 static struct ControlElement *ControlElements = ControlElementsDefault;
 static int ControlElementsLength = sizeof(ControlElementsDefault)/sizeof(struct ControlElement);
 
-#define TRIGGER_DETECT(size) (((pos.x + size / 2 > CORRECT_TOUCH_X(event->x)) && (pos.x - size / 2 < CORRECT_TOUCH_X(event->x))) &&\
-                              ((pos.y + size / 2 > CORRECT_TOUCH_Y(event->y)) && (pos.y - size / 2 < CORRECT_TOUCH_Y(event->y))))
+#define TRIGGER_DETECT(size) (((pos.x + ((size) / 2) > CORRECT_TOUCH_X(event->x)) && (pos.x - ((size) / 2) < CORRECT_TOUCH_X(event->x))) &&\
+                              ((pos.y + ((size) / 2) > CORRECT_TOUCH_Y(event->y)) && (pos.y - ((size) / 2) < CORRECT_TOUCH_Y(event->y))))
+
+static int button_hit(int i) {
+    return ControlElements[i].hitSize ? ControlElements[i].hitSize : BUTTON_HIT;
+}
 
 void touch_down(struct TouchEvent* event) {
     struct Position pos;
@@ -67,20 +82,29 @@ void touch_down(struct TouchEvent* event) {
             pos = ControlElements[i].GetPos();
             switch (ControlElements[i].type) {
                 case Joystick:
-                    if (TRIGGER_DETECT(JOYSTICK_SIZE)) {
+                    if (TRIGGER_DETECT(JOYSTICK_BASE_HALF * 2 + 80)) {
                         ControlElements[i].touchID = event->touchID;
-                        ControlElements[i].joyX = CORRECT_TOUCH_X(event->x) - pos.x;
-                        ControlElements[i].joyY = CORRECT_TOUCH_Y(event->y) - pos.y;
+                        ControlElements[i].originX = CORRECT_TOUCH_X(event->x);
+                        ControlElements[i].originY = CORRECT_TOUCH_Y(event->y);
+                        ControlElements[i].joyX = 0;
+                        ControlElements[i].joyY = 0;
                     }
                     break;
                 case Button:
-                    if (TRIGGER_DETECT(120)) {
+                    if (TRIGGER_DETECT(button_hit(i))) {
                         ControlElements[i].touchID = event->touchID;
                     }
                     break;
             }
         }
     }
+}
+
+static int clamp_axis(int v) {
+    if (v > JOYSTICK_SIZE / 2) return JOYSTICK_SIZE / 2;
+    if (v < -JOYSTICK_SIZE / 2) return -JOYSTICK_SIZE / 2;
+    if (v > -JOYSTICK_DEADZONE && v < JOYSTICK_DEADZONE) return 0;
+    return v;
 }
 
 void touch_motion(struct TouchEvent* event) {
@@ -91,24 +115,11 @@ void touch_motion(struct TouchEvent* event) {
             pos = ControlElements[i].GetPos();
                 switch (ControlElements[i].type) {
                     case Joystick:
-                        ; //workaround
-                        s32 x,y;
-                        x = CORRECT_TOUCH_X(event->x) - pos.x;
-                        y = CORRECT_TOUCH_Y(event->y) - pos.y;
-                        if (pos.x + JOYSTICK_SIZE/2 < CORRECT_TOUCH_X(event->x))
-                            x = JOYSTICK_SIZE/2;
-                        if (pos.x - JOYSTICK_SIZE/2 > CORRECT_TOUCH_X(event->x))
-                            x = -JOYSTICK_SIZE/2;
-                        if (pos.y + JOYSTICK_SIZE/2 < CORRECT_TOUCH_Y(event->y))
-                            y = JOYSTICK_SIZE/2;
-                        if (pos.y - JOYSTICK_SIZE/2 > CORRECT_TOUCH_Y(event->y))
-                            y = -JOYSTICK_SIZE/2;
-
-                        ControlElements[i].joyX = x;
-                        ControlElements[i].joyY = y;
+                        ControlElements[i].joyX = clamp_axis(CORRECT_TOUCH_X(event->x) - ControlElements[i].originX);
+                        ControlElements[i].joyY = clamp_axis(CORRECT_TOUCH_Y(event->y) - ControlElements[i].originY);
                         break;
                     case Button:
-                        if (ControlElements[i].slideTouch && !TRIGGER_DETECT(120)) {
+                        if (ControlElements[i].slideTouch && !TRIGGER_DETECT(button_hit(i))) {
                             ControlElements[i].slideTouch = 0;
                             ControlElements[i].touchID = 0;
                         }
@@ -120,7 +131,7 @@ void touch_motion(struct TouchEvent* event) {
                 case Joystick:
                     break;
                 case Button:
-                    if (TRIGGER_DETECT(120)) {
+                    if (TRIGGER_DETECT(button_hit(i))) {
                         ControlElements[i].slideTouch = 1;
                         ControlElements[i].touchID = event->touchID;
                     }
@@ -182,9 +193,11 @@ static void select_char_texture(char num) {
     gSPDisplayList(gDisplayListHead++, dl_hud_img_load_tex_block);
 }
 
-static void DrawSprite(s32 x, s32 y, int scaling) {
-    gSPTextureRectangle(gDisplayListHead++, x - (15 << scaling), y - (15 << scaling), x + (15 << scaling),
-                        y + (15 << scaling), G_TX_RENDERTILE, 0, 0, 4 << (11 - scaling), 1 << (11 - scaling));
+static void DrawSpriteSize(s32 x, s32 y, int half) {
+    // The original used half = 15 << scaling with steps 4 << (11 - scaling)
+    // and 1 << (11 - scaling); these keep that texel step for any size.
+    gSPTextureRectangle(gDisplayListHead++, x - half, y - half, x + half, y + half,
+                        G_TX_RENDERTILE, 0, 0, 122880 / half, 30720 / half);
 }
 
 void render_touch_controls(void) {
@@ -211,17 +224,19 @@ void render_touch_controls(void) {
         switch (ControlElements[i].type) {
             case Joystick:
                 pos = ControlElements[i].GetPos();
-                DrawSprite(pos.x, pos.y, 3);
-                DrawSprite(pos.x + 4 + ControlElements[i].joyX, pos.y + 4 + ControlElements[i].joyY, 2);
+                DrawSpriteSize(pos.x, pos.y, JOYSTICK_BASE_HALF);
+                DrawSpriteSize(pos.x + 4 + ControlElements[i].joyX, pos.y + 4 + ControlElements[i].joyY, JOYSTICK_KNOB_HALF);
                 break;
-            case Button:
+            case Button: {
+                int half = ControlElements[i].drawHalf ? ControlElements[i].drawHalf : BUTTON_HALF;
                 if (ControlElements[i].touchID)
                     select_button_texture(1);
                 pos = ControlElements[i].GetPos();
-                DrawSprite(pos.x - 8, pos.y, 2);
+                DrawSpriteSize(pos.x - 8, pos.y, half);
                 select_char_texture(ControlElements[i].character);
-                DrawSprite(pos.x, pos.y, 1);
+                DrawSpriteSize(pos.x, pos.y, half / 2);
                 break;
+            }
         }
     }
 
